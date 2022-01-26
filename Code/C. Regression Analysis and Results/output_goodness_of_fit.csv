@@ -1,0 +1,8 @@
+"","OveralL_GOF","Linearity","ConstantVariance","Independence","Normality"
+"Full","not good","Seems to be holding","Does not seem to be holding","Errors are uncorrelated","Does not seem to be holding"
+"Full-Transformed","Average","Seems to be holding"," seem to be holding","Errors are uncorrelated","Improved and moderaetly holding"
+"Step-Wise","Average","Seems to be holding","not clearly holding","Errors are uncorrelated","Does not seemd to be holding"
+"Step-Wise-Transformed","Average","Seems to be holding","seem to be holding","Errors are uncorrelated","Improved and moderaetly holding"
+"Lasso","Average","Seems to be holding","Does not seem to be clearly holding","Errors are uncorrelated","Does not seem to be holding"
+"Lasso-Transformed","Average","Seems to be holding","seem to be holding","Errors are uncorrelated","Improved and moderaetly holding"
+"ENet","Average","Seems to be holding","Does not seem to be clearly holding","Errors are uncorrelated","Does not seem to be holding"

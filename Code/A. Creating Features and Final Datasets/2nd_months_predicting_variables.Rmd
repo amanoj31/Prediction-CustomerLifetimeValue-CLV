@@ -1,0 +1,416 @@
+---
+title: "ISyE6414 Project"
+author: "Team 14: Dataset for Future Prediction"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#Read Data file in
+```{r, message=FALSE, warning=FALSE}
+# Import library you may need
+library(car)
+library(dplyr)
+library(TSstudio)
+library(ggplot2)
+library(tibble)
+
+# Read the data set
+raw <- read.csv("Online Retail.csv")
+head(raw)
+```
+
+#Data Discription
+InvoiceNo: Invoice number. Nominal, a 6-digit integral number uniquely assigned to each transaction. If this code starts with letter 'c', it indicates a cancellation.
+
+StockCode: Product (item) code. Nominal, a 5-digit integral number uniquely assigned to each distinct product.
+
+Description: Product (item) name. Nominal.
+
+Quantity: The quantities of each product (item) per transaction. Numeric.
+
+InvoiceDate: Invice Date and time. Numeric, the day and time when each transaction was generated.
+
+UnitPrice: Unit price. Numeric, Product price per unit in sterling.
+
+CustomerID: Customer number. Nominal, a 5-digit integral number uniquely assigned to each customer.
+
+Country: Country name. Nominal, the name of the country where each customer resides.
+```{r}
+colnames(raw, do.NULL = TRUE, prefix = "col")
+num_row <- nrow(raw)
+cat('Number of rows:',num_row)
+```
+#Convert nominal data to catagorical data
+```{r}
+raw$InvoiceNo<-as.factor(raw$InvoiceNo)
+raw$StockCode<-as.factor(raw$StockCode)
+raw$Description<-as.factor(raw$Description)
+raw$CustomerID<-as.factor(raw$CustomerID)
+raw$Country<-as.factor(raw$Country)
+raw$InvoiceDate <- as.Date(raw$InvoiceDate, "%m/%d/%Y")
+sapply(raw, class)
+```
+#Removing redundant rows of the data
+```{r}
+rdd_raw <- distinct(raw)
+num_row_rdd <- nrow(rdd_raw)
+removed <- num_row - num_row_rdd
+cat('Number of redundant rows been removed:',removed)
+```
+
+#Removing columns that contain missing value(s)
+```{r}
+missing_raw <- na.omit(rdd_raw)
+num_row_missing <- nrow(missing_raw)
+removed2 <- num_row_rdd-num_row_missing
+cat('Number of rows contains missing values been further removed:',removed2)
+cleaned_df<-missing_raw
+head(cleaned_df)
+nrow(cleaned_df)
+```
+#Segment the Data into First (Initial) and Second (Final) 6 Months (i.e. May 31, 2011)
+```{r}
+max(which((cleaned_df$InvoiceDate=="2011-05-31")))
+final_df<-cleaned_df[1:max(which((cleaned_df$InvoiceDate=="2011-05-31"))),]
+initial_df<-cleaned_df[min(which((cleaned_df$InvoiceDate=="2011-06-01"))):nrow(cleaned_df),]
+```
+
+#Explore the data
+##Count catagorical data
+
+```{r}
+count_unique<-rapply(cleaned_df[c(1,2,7,8)],function(x) length(unique(x)))
+initial_unique<-rapply(initial_df[c(1,2,7,8)],function(x) length(unique(x)))
+final_unique<-rapply(final_df[c(1,2,7,8)],function(x) length(unique(x)))
+count_unique
+initial_unique
+final_unique
+```
+By counting the unique appearance of the data, we can find out that:
+1. The data frame contains 22190 unique transactions.
+2. The data frame contains 3684 kinds of unique products.
+3. The data frame contains 4372 unique customers.
+4. The data is collected across 37 countries.
+
+##Time series plot of sales over entire time span
+```{r}
+all_date <- as.Date(cleaned_df$InvoiceDate)
+quantity_over_time <- aggregate(cleaned_df$Quantity, by=list(all_date), sum)
+qov_plot<-ts_plot(quantity_over_time,
+        title = "Daily Sales Quantity",
+        Xtitle = "Time",
+        Ytitle = "Number of Items")
+qov_plot
+```
+Plot aggregated daily sales quantity. We do not see abnormal behaviors across time.
+
+##Order quantity from top 10 countries
+```{r}
+country_table<-table(cleaned_df$Country)
+country_table<-sort(country_table)
+ranked<-country_table[c(29:38)]
+print(ranked)
+barplot(ranked,main = "Order Quantity from Top 10 Countries",las=2,cex.names=0.6)
+```
+Ranking countries that has the most orders.
+United Kingdom ordered the most, and they take a huge portion of the data. Might be careful while performing regression, since huge amount of orders came from UK.
+
+##Number of sales and return for Initial Six Months
+```{r}
+initial_return<-nrow(initial_df[initial_df$Quantity<0,])
+initial_sale<-nrow(initial_df[initial_df$Quantity>0,])
+cat('the number of sales of first six months of  the transactions is ', initial_sale)
+cat('\nthe number of returns of first six months of the transactions is ', initial_return)
+
+```
+##Transaction Frequency of First Six Months
+```{r}
+#Unique Customers in First Six Months
+initial_customer_table<-table(initial_df$CustomerID)
+initial_customer_all<-as.data.frame(initial_customer_table)
+initial_customer=filter(initial_customer_all,initial_customer_all$Freq>0)
+
+#First 6 Months of return data frame
+initial_return_df<-initial_df[initial_df$Quantity<0,]
+initial_return_table<-table(initial_return_df$CustomerID)
+initial_customer_return<-as.data.frame(initial_return_table)
+initial_return=filter(initial_customer_return,initial_customer_return$Freq>0)
+#First 6 Months of sales data frame
+initial_sale_df<-initial_df[initial_df$Quantity>0,]
+initial_sale_table<-table(initial_sale_df$CustomerID)
+initial_customer_sale<-as.data.frame(initial_sale_table)
+initial_sale=filter(initial_customer_sale,initial_customer_sale$Freq>0)
+#Histogram of First Six Months
+ggplot(initial_customer, aes(x=Freq)) +
+  geom_histogram(binwidth=10) +
+  labs(title="Histogram of Transaction Frequency of First Six Months of Customers", y = "Density")
+ggplot(initial_return, aes(x=Freq)) +
+  geom_histogram(binwidth=10) +
+  labs(title="Histogram of Returns Frequency of First Six Months of Customers", y = "Density")
+ggplot(initial_sale, aes(x=Freq)) +
+  geom_histogram(binwidth=10) +
+  labs(title="Histogram of Sales Frequency of First Six Months of Customers", y = "Density")
+
+```
+
+
+#Stock Ordering Frequency of First 6 Months
+```{r}
+#Stockcode ordering df for First 6 Months
+initial_SC_ordering_table<-table(initial_sale_df$StockCode)
+initial_SC_ordering_df<-as.data.frame(initial_SC_ordering_table)
+initial_SC_ordering=filter(initial_SC_ordering_df,initial_SC_ordering_df$Freq>0)
+#Plot of Stock Ordering First 6 Months
+ggplot(initial_SC_ordering, aes(x=Freq)) +
+  geom_histogram() +
+  labs(title="Histogram of Item Ordering Frequency of All Products for First Six Months", y = "Density")
+
+```
+
+#Dataframe creation for Customers in First 6 Months
+```{r}
+initial_df2<-initial_df%>%
+  mutate(Income=Quantity*UnitPrice)
+initial_sale_df2<-initial_sale_df%>%
+  mutate(Income=Quantity*UnitPrice)
+initial_return_df2<-initial_return_df%>%
+  mutate(Income=Quantity*UnitPrice)
+
+#Unique Customers in First 6 Months
+df<-data.frame(unique(initial_df2$CustomerID))
+colnames(df)<-'CustomerID'
+
+##Features of Customer Overall Orders
+#Total Number of Purchase Orders by Customer
+OrderNo <- initial_sale_df%>%
+  group_by(CustomerID,InvoiceNo)%>%
+  summarise(OrderNo = n())
+Orders_Unique <- OrderNo%>%
+  group_by(CustomerID)%>%
+  summarise(Orders_Unique = n())
+df <- left_join(df,Orders_Unique,'CustomerID')
+
+#Total Number of Return Orders by Customer
+ReturnNo <- initial_return_df%>%
+  group_by(CustomerID,InvoiceNo)%>%
+  summarise(ReturnNo = n())
+Returns_Unique <- ReturnNo%>%
+  group_by(CustomerID)%>%
+  summarise(Returns_Unique = n())
+df <- left_join(df,Returns_Unique,'CustomerID')
+
+#Total Number of Invoice's (Purchase and Return) by Customer
+InvoiceNo <- initial_df%>%
+  group_by(CustomerID,InvoiceNo)%>%
+  summarise(InvoiceNo = n())
+Invoice_Unique <- InvoiceNo%>%
+  group_by(CustomerID)%>%
+  summarise(Invoice_Unique = n())
+df <- left_join(df,Invoice_Unique,'CustomerID')
+
+##Total Item Features
+#Total Items Purchased by Customer
+Sale_Quantity <- initial_sale_df%>%
+  group_by(CustomerID)%>%
+  summarise(Total_Items_Purchased=sum(Quantity))
+df <- left_join(df,Sale_Quantity,'CustomerID')
+
+#Total Quantity Per Purchase Basket
+df$Quantity_Basket=df$Total_Items_Purchased/df$Orders_Unique
+
+#Total Items Returned by Customer
+Return_Quantity <- initial_return_df%>%
+  group_by(CustomerID)%>%
+  summarise(Total_Items_Returned=sum(Quantity))
+df <- left_join(df,Return_Quantity,'CustomerID')
+
+#Total Quantity Per Return
+#df$Quantity_Return=df$Total_Items_Returned/df$Returns_Unique
+
+#Net Total Items by Customer
+Net_Quantity <- initial_df%>%
+  group_by(CustomerID)%>%
+  summarise(Net_Total_Items=sum(Quantity))
+df <- left_join(df,Net_Quantity,'CustomerID')
+
+#Net Total Quantity Per Invoice
+#df$Average_Net_Quantity = df$Net_Total_Items/df$Invoice_Unique
+
+##Unique Item Features
+#Total Number of Unique Items Purchased by Customer
+Purchase <- initial_sale_df%>%
+  group_by(StockCode,CustomerID)%>%
+  summarise(Purchase = n())
+Purchase_Unique <- Purchase%>%
+  group_by(CustomerID)%>%
+  summarise(Types_Items_Purchased=n())
+df <- left_join(df,Purchase_Unique,'CustomerID')
+
+#Total Number of Unique Items Per Purchase Basket
+Unique_Item_Per_Basket <-OrderNo%>%
+  group_by(CustomerID)%>%
+  summarise(Unique_Item_Per_Basket = mean(OrderNo))
+df <- left_join(df,Unique_Item_Per_Basket,'CustomerID')
+
+#Total Number of Unique Items Returned by Customer
+Cancellation <- initial_return_df%>%
+  group_by(StockCode,CustomerID)%>%
+  summarise(Cancellation = n())
+Cancellation_Unique <- Cancellation%>%
+  group_by(CustomerID)%>%
+  summarise(Types_Items_Returned=n())
+df <- left_join(df,Cancellation_Unique,'CustomerID')
+
+#Total Number of Unique Items Per Return Order
+Unique_Item_Per_Return <-ReturnNo%>%
+  group_by(CustomerID)%>%
+  summarise(Unique_Item_Per_Return = mean(ReturnNo))
+df <- left_join(df,Unique_Item_Per_Return,'CustomerID')
+
+##Total Revenue Features
+#Total Sales Revenue per Customer
+Sales_Revenue <- initial_sale_df2%>%
+  group_by(CustomerID)%>%
+  summarise(Sales_Revenue=sum(Income))
+df <- left_join(df,Sales_Revenue,'CustomerID')
+
+#Average Order Value
+#df$Average_Order_Value = df$Sales_Revenue/df$Orders_Unique
+
+#Total Return Refund per Customer
+Return_Refund <- initial_return_df2%>%
+  group_by(CustomerID)%>%
+  summarise(Return_Refund=sum(Income))
+df <- left_join(df,Return_Refund,'CustomerID')
+
+#Average Return Value
+#df$Average_Return_Value = df$Return_Refund/df$Returns_Unique
+
+#Total Revenue (Sales-Refund) per Customer
+df$Total_Revenue=df$Sales_Revenue+df$Return_Refund
+
+#Average Invoice Value
+#df$Average_Invoice_Value = df$Total_Revenue/df$Invoice_Unique
+
+##Features for per unit pricing
+#Average Unit Price per Item Purchased
+Average_Unit_Price_Purchase <- initial_sale_df2%>%
+  group_by(CustomerID)%>%
+  summarise(Average_Unit_Price_Purchase=sum(Income)/sum(Quantity))
+df <- left_join(df,Average_Unit_Price_Purchase,'CustomerID')
+
+#Average Unit Refund per Item Returned
+Average_Unit_Refund_Return <- initial_return_df2%>%
+  group_by(CustomerID)%>%
+  summarise(Average_Unit_Refund_Return=sum(Income)/sum(Quantity))
+df <- left_join(df,Average_Unit_Refund_Return,'CustomerID')
+
+#Average Unit Revenue per Item in Invoice
+#df$Average_Unit_Revenue=df$Total_Revenue/df$Net_Total_Items 
+
+#Add Country Designation
+Country <- initial_df%>%
+  group_by(CustomerID)%>%
+  summarise(Country=unique(Country))
+df <- left_join(df,Country,'CustomerID')
+```
+```{r}
+##Add Most popular item by Customer
+#Most_Purchased_StockCode <- initial_sale_df2%>%
+#  group_by(CustomerID,StockCode)%>%
+#  summarise(Sum_Return=sum(Income))
+#colnames(Most_Purchased_StockCode)[which(colnames(Most_Purchased_StockCode) %in% c("StockCode") )] <- #c("Most_Purchased_StockCode")
+#Most_Purchased_StockCode <- Most_Purchased_StockCode %>% 
+#  group_by(CustomerID) %>% filter(Sum_Return == max(Sum_Return))
+#df <- left_join(df,Most_Purchased_StockCode[c('CustomerID','Most_Purchased_StockCode')],'CustomerID')
+```
+```{r}
+#Is a customer purchasing the most profitable items
+Profitable_items <- initial_sale_df2%>%
+  group_by(StockCode)%>%
+  summarise(Total_Monetary_Value=sum(Income))
+Profitable_items<-Profitable_items[order(-Profitable_items$Total_Monetary_Value),]
+# Top 3 items' StockCode: "23166", "22423", "85123A"
+Is_Most_Popular <- initial_sale_df2 %>%
+  mutate(Is_Most_Popular  = case_when(
+    StockCode == "23166" ~ 1,
+    StockCode == "22423" ~ 1,
+    StockCode == "85123A" ~ 1,
+    TRUE ~ 0
+    ))
+Is_Buying_Most_Popular <- Is_Most_Popular%>%
+  group_by(CustomerID)%>%
+  summarise(Is_Buying_Most_Popular=sum(Is_Most_Popular))
+  
+Is_Buying_Most_Popular <- Is_Buying_Most_Popular %>%
+  mutate(Is_Buying_Most_Popular = 
+           case_when(
+             Is_Buying_Most_Popular>=1~1,
+             Is_Buying_Most_Popular<1~0))
+
+df <- left_join(df,Is_Buying_Most_Popular,'CustomerID')
+
+df[is.na(df)] = 0
+
+```
+
+
+##After creating raw data set on customer level, we will start create additional predicting variables. Since we are studying RFM, we need to first calculate for Recency, Frequency, and Monetory value score. 
+# https://towardsdatascience.com/recency-frequency-monetary-model-with-python-and-how-sephora-uses-it-to-optimize-their-google-d6a0707c5f17
+# quantile method is borrowed from the link above.
+###Recency is defined as: quantile of number of month since last purchase within all customers
+```{r}
+#Recency calculation for each customer. Number of days since last purchase to the end date of the initial data file (31 May 11)
+Recency <- initial_df%>%
+  group_by(CustomerID)%>%
+  summarise(Recency=max(initial_df$InvoiceDate)-max(InvoiceDate))
+Recency_Quantile <- Recency %>% mutate(Recency_Quantile = ntile(Recency, 100)/100)
+df <- left_join(df,Recency_Quantile,'CustomerID')
+```
+###Frequency is originally defined as: quantile of number of purchases within the first 6 months within all customers
+```{r}
+df <- df %>% mutate(Frequency_Quantile = ntile(Invoice_Unique, 100)/100)
+colnames(df)[which(colnames(df) %in% c("Invoice_Unique") )] <- c("Frequency")
+```
+###Monetory value is defined as: the highest value of all purchases by the customer expressed as a multiple of some benchmark value.
+```{r}
+df <- df %>% mutate(Monetory_Value_Quantile = ntile(Total_Revenue, 100)/100)
+colnames(df)[which(colnames(df) %in% c("Total_Revenue") )] <- c("Monetory_Value")
+```
+### RFM score
+```{r}
+df$RFM_Score <- df$Recency_Quantile+df$Frequency_Quantile+df$Monetory_Value_Quantile
+df <- df %>% mutate(RFM_Score = ntile(RFM_Score, 3))
+
+```
+
+
+
+##Dataframe for Last 6 Months Customer Revenue
+```{r}
+#Response for Revenue of Customers
+temp <- final_df%>%
+  mutate(Income=Quantity*UnitPrice)
+Y_Income <- temp %>%
+  group_by(CustomerID)%>%
+  summarise(Y_Income = sum(Income))
+
+```
+##Combined Dataframe for Model
+```{r}
+final_data <- df
+#final_data <- na.omit(final_data)
+#final_data[, c(1: ncol(final_data))] <- sapply(final_data[, c(1: ncol(final_data))], as.numeric)
+#final_data <- final_data[!is.infinite(rowSums(final_data)),]
+final_data$Country<-as.factor(final_data$Country)
+final_data$Is_Buying_Most_Popular<-as.factor(final_data$Is_Buying_Most_Popular)
+
+final_data[ ,c('CustomerID','Invoice_Unique','Net_Total_Items','RFM_Score')] <- list(NULL)
+
+write.csv(final_data,"2nd_months_predicting_variables.csv",row.names = FALSE)
+```
+```

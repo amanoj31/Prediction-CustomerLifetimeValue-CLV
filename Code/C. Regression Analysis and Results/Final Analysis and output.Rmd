@@ -1,0 +1,810 @@
+---
+title: "ISyE 6414"
+author: "Team 14: Analysis and Output"
+output: html_document
+---
+
+```{r}
+library(car)
+library(dplyr)
+library(TSstudio)
+library(ggplot2)
+library(tibble)
+library(caret)
+## Load packages
+# Data Prep and EDA
+library(knitr)
+# install.packages("tidyverse")
+library(tidyverse)
+library(corrplot)
+# Logistic Reg. and Model Selection
+library(caTools)
+library(car)
+library(glmnet)
+library(caret)
+# # KNN
+# library(kknn)
+# # Decision Tree and Random Forest
+# library(rpart)
+# library(rpart.plot)
+# library(randomForest)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+train3 <- read.csv("train3.csv")
+test <- read.csv("test.csv")
+train=train3[-c(1)]
+test=test[-c(1)]
+train$RFMSeg=as.factor(train$RFMSeg)
+train$Is_Buying_Most_Popular = as.factor(train$Is_Buying_Most_Popular)
+train$Country = as.factor(train$Country)
+
+test$RFMSeg=as.factor(test$RFMSeg)
+test=test[-c(12)]
+
+test$Is_Buying_Most_Popular = as.factor(test$Is_Buying_Most_Popular)
+test$Country = as.factor(test$Country)
+```
+
+
+```{r}
+# final summary of the dataset
+summary(train)
+```
+
+
+
+### Full model
+```{r}
+
+full.model <- lm(Y_Income~ ., data = train)
+summary(full.model)
+
+# Signiciant Coefficients
+which(summary(full.model)$coeff[,4]<0.05)
+
+
+print("--------------------------------------------------------------------------------")
+## Insignificant variables
+# Insignificant Coefficients
+which(summary(full.model)$coeff[,4]>0.05)
+paste("number of coefficient:", length(summary(full.model)$coefficients )/4 - 1)
+
+```
+
+
+```{r}
+
+full.model.transformed <-lm(Y_Income^(1/2)~., data=train)
+# Display summary
+summary(full.model.transformed)
+
+# Signiciant Coefficients
+which(summary(full.model.transformed)$coeff[,4]<0.05)
+
+
+print("--------------------------------------------------------------------------------")
+## Insignificant variables
+# Insignificant Coefficients
+which(summary(full.model.transformed)$coeff[,4]>0.05)
+
+paste("number of coefficient:", length(summary(full.model.transformed)$coefficients )/4 - 1)
+
+
+
+```
+
+
+
+1. Forward-Backward Stepwise Regression
+
+```{r, results='asis'}
+# Create minimum model including an intercept
+min.model <-  lm(Y_Income~ 1 , data = train)
+
+
+# Identify variables not selected by F-B Stepwise regression
+# index.step <- which(!(names(coef(full.model)) %in% names(coef(step.model))))
+# cat("\n\n\n Variables not selected by forward-backward stepwise:",
+#     names(coef(full.model)[index.step]))
+
+# Perform stepwise regression
+step.model <- step(min.model, scope = list(lower = min.model, upper = full.model),
+                  direction = "both", trace = FALSE)
+summary(step.model)
+# Signiciant Coefficients
+which(summary(step.model)$coeff[,4]<0.05)
+
+
+print("--------------------------------------------------------------------------------")
+## Insignificant variables
+# Insignificant Coefficients
+which(summary(step.model)$coeff[,4]>0.05)
+
+s = summary(step.model)
+length(s$coefficients)
+
+paste("number of coefficient:", length(summary(step.model)$coefficients )/4 - 1)
+
+```
+```{r}
+# Box-Cox transformation
+bc<-boxCox(step.model)
+# Extract optimal lambda
+opt.lambda<-bc$x[which.max(bc$y)]
+# Rounded optimal lambda
+cat("Optimal Lambda = ", round(opt.lambda/0.5)*0.5, end="\n")
+step.model.transformed=lm(formula = Y_Income**(1/2) ~ Sales_Revenue + Orders_Unique + Total_Items_Purchased + 
+    Types_Items_Purchased + Types_Items_Returned + Average_Unit_Refund_Return + 
+    Country, data = train)
+summary(step.model.transformed)
+
+# Signiciant Coefficients
+which(summary(step.model.transformed)$coeff[,4]<0.05)
+
+
+print("--------------------------------------------------------------------------------")
+## Insignificant variables
+# Insignificant Coefficients
+which(summary(step.model.transformed)$coeff[,4]>0.05)
+
+paste("number of coefficient:", length(summary(step.model.transformed)$coefficients )/4 - 1)
+
+
+```
+2. Lasso Regression
+
+```{r}
+# Set a seed for reproducibility
+set.seed(1)
+
+# Set predictors and response to correct format
+x.train <- scale(model.matrix(Y_Income ~ ., train)[,-1])
+y.train <- scale(train$Y_Income)
+
+x.train_ws <- model.matrix(Y_Income ~ ., train)[,-1]
+y.train_ws <- train$Y_Income
+
+# Use cross validation to find optimal lambda
+cv.lasso <- cv.glmnet(x.train, y.train, alpha = 1, nfolds = 10)
+cv.lasso$lambda.min
+# Train Lasso and display coefficients with optimal lambda
+lasso.model <- glmnet(x.train, y.train, alpha = 1, nlambda = 100)
+coef(lasso.model, cv.lasso$lambda.min)
+
+# Identify variables not selected by Lasso
+index.lasso <- which(coef(lasso.model, cv.lasso$lambda.min) == 0)
+cat("\n\n\n Variables not selected by lasso regression: ",
+    names(coef(full.model)[index.lasso]))
+
+
+# Retrain OLS model using Lasso-selected predictors
+lasso.predictors <- as.data.frame(x.train_ws)[-(index.lasso-1)]
+lasso.retrained <- lm(y.train_ws ~ ., data = lasso.predictors)
+summary(lasso.retrained)
+
+# Signiciant Coefficients
+which(summary(lasso.retrained)$coeff[,4]<0.05)
+
+
+print("--------------------------------------------------------------------------------")
+## Insignificant variables
+# Insignificant Coefficients
+which(summary(lasso.retrained)$coeff[,4]>0.05)
+
+paste("number of coefficient:", length(summary(lasso.retrained)$coefficients )/4 - 1)
+
+
+```
+
+```{r}
+#Plot the regression coefficient path.
+
+set.seed(1)
+
+lassomodel = glmnet(x.train, y.train, alpha=1, nlambda=100)
+
+## Plot coefficient paths
+plot(lassomodel, xvar="lambda", label=TRUE, lwd=2)
+abline(v=log(cv.lasso$lambda.min), col='black', lty=2, lwd=2)
+
+```
+
+
+```{r}
+# Box-Cox transformation
+bc<-boxCox(lasso.retrained)
+# Extract optimal lambda
+opt.lambda<-bc$x[which.max(bc$y)]
+# Rounded optimal lambda
+cat("Optimal Lambda = ", round(opt.lambda/0.5)*0.5, end="\n")
+lasso.retrained.transformed <- lm(y.train_ws**(1/2) ~ ., data = lasso.predictors)
+summary(lasso.retrained.transformed)
+
+
+# Signiciant Coefficients
+which(summary(lasso.retrained.transformed)$coeff[,4]<0.05)
+
+
+print("--------------------------------------------------------------------------------")
+## Insignificant variables
+# Insignificant Coefficients
+which(summary(lasso.retrained.transformed)$coeff[,4]>0.05)
+
+paste("number of coefficient:", length(summary(lasso.retrained.transformed)$coefficients )/4 - 1)
+
+
+```
+3. Elastic Net Regression
+
+```{r}
+# Set a seed for reproducibility
+set.seed(1)
+
+# Use cross validation to find optimal lambda
+cv.elnet <- cv.glmnet(x.train, y.train, alpha = 0.5)
+
+# Train Elastic Net and display coefficients with optimal lambda
+elnet.model <- glmnet(x.train, y.train, alpha = 0.5)
+coef(elnet.model, cv.elnet$lambda.min)
+cv.elnet$lambda.min
+# Identify variables not selected by Elastic Net
+index.elnet <- which(coef(elnet.model, cv.elnet$lambda.min) == 0)
+cat("\n\n\n Variables not selected by elastic net regression:",
+    names(coef(full.model)[index.elnet]))
+
+elnet.predictors <- as.data.frame(x.train_ws)[-(index.elnet-1)]
+elnet.retrained <- lm(y.train_ws ~ ., data = elnet.predictors)
+summary(elnet.retrained)
+
+
+# Signiciant Coefficients
+which(summary(elnet.retrained)$coeff[,4]<0.05)
+
+
+print("--------------------------------------------------------------------------------")
+## Insignificant variables
+# Insignificant Coefficients
+which(summary(elnet.retrained)$coeff[,4]>0.05)
+
+paste("number of coefficient:", length(summary(elnet.retrained)$coefficients )/4 - 1)
+
+
+```
+
+4. Variable Selection Comparison
+
+```{r}
+# Identify variables not selected by F-B Stepwise regression
+index.step <- which(!(names(coef(full.model)) %in% names(coef(step.model))))
+cat("\n\n\n Variables not selected by forward-backward stepwise:",
+    names(coef(full.model)[index.step]))
+
+# Identify variables not selected by Lasso
+index.lasso <- which(coef(lasso.model, cv.lasso$lambda.min) == 0)
+cat("\n\n\n Variables not selected by lasso regression: ",
+    names(coef(full.model)[index.lasso]))
+
+# Identify variables not selected by Elastic Net
+index.elnet <- which(coef(elnet.model, cv.elnet$lambda.min) == 0)
+cat("\n\n\n Variables not selected by elastic net regression:",
+    names(coef(full.model)[index.elnet]))
+```
+
+### Prediction on Test Set
+
+Now, we are on to do the predictions using the models we just created. A classification threshold of 0.5 is used. Note that this threshold could be tuned depending on the sensitivity/specificity tolerance. In this case, it becomes important to identify people that are likely to churn so that the corrective measures can be taken. This means lowering the threshold could be a good idea even if it results in more False Positive cases.
+
+```{r}
+# 1. Prediction for the full model and transformed
+
+# Obtain predicted probabilities for the test set
+pred.full = predict(full.model, newdata = test, type = "response")
+pred.full.transformed = predict(full.model.transformed, newdata = test, type = "response")**2
+
+
+# 2. Prediction for the stepwise regression 
+
+# Obtain predicted probabilities for the test set
+pred.step = predict(step.model, newdata = test, type = "response")
+pred.step.transformed=predict(step.model.transformed, newdata = test, type = "response")**2
+
+
+# 3. Prediction for the lasso regression
+
+
+# Set test data to correct format
+new_test <- model.matrix( ~ ., test)[,-1]
+# Obtain predicted probabilities for the test set
+pred.lasso = predict(lasso.retrained, newdata = as.data.frame(new_test),
+                     type = "response")
+pred.lasso.transformed = predict(lasso.retrained.transformed, newdata = as.data.frame(new_test),
+                     type = "response")**2
+
+
+# 4. Prediction for elastic net regression 
+
+# Set predictors to correct format
+x.test <- model.matrix(Y_Income ~ ., test)[,-1]
+# Obtain predicted probabilities for the test set
+# pred.elnet = as.vector(predict(elnet.model, newx = x.test,
+#                                type = "response", s = cv.elnet$lambda.min))
+pred.elnet=predict(elnet.retrained, newdata = as.data.frame(x.test),
+                     type = "response")
+
+# Create a data frame with the predictions
+preds = data.frame(Y_Income = test$Y_Income, pred.full,pred.full.transformed,
+                   pred.step,pred.step.transformed, pred.lasso,pred.lasso.transformed, pred.elnet)
+```
+
+### Evaluation Metrics
+
+
+```{r}
+
+mspe <-function(prediction, testData) 
+  { return(mean((testData - prediction)^2))}
+
+mae <-function(prediction, testData) {return(mean(abs(testData - prediction)))}
+
+mape <-function(prediction, testData) {return(mean(abs(testData - prediction)/testData))}
+
+pm <-function(prediction, testData) {return(sum((testData - prediction)^2)/sum((testData - mean(testData))^2))}
+
+
+
+```
+
+
+```{r}
+
+
+report_result = data.frame(matrix(ncol=4,nrow=0, dimnames=list(NULL,c("MSPE", "MAE", "MAPE", "PM"))))
+
+for (i in c(2:8)){
+  
+  testData=preds[,1]
+  prediction=preds[,i]
+  mspe_result = mspe(prediction, testData)
+  mae_result = mae(prediction, testData)
+  mape_result = mape(prediction, testData)
+  pm_result = pm(prediction, testData)
+
+  # print(nrow(report_result2))
+  # print( c(mspe_result, mae_result, mape_result, pm_result) )
+report_result[nrow(report_result)+1,] = c(mspe_result, mae_result, mape_result, pm_result) 
+}
+   rownames(report_result) <- c("Full", "Full-Transformed", "Step-Wise","Step-Wise-Transformed","Lasso", "Lasso-Transformed","ENet")
+
+
+
+```
+
+Adding R squared and Adjusted r squared
+
+```{r}
+  report_result$R.Squared=c(summary(full.model)$r.squared,summary(full.model.transformed)$r.squared,summary(step.model)$r.squared,summary(step.model.transformed)$r.squared,summary(lasso.retrained)$r.squared,summary(lasso.retrained.transformed)$r.squared,summary(elnet.retrained)$r.squared)
+  
+  report_result$Adj.R.Squared=c(summary(full.model)$adj.r.squared,summary(full.model.transformed)$adj.r.squared,summary(step.model)$adj.r.squared,summary(step.model.transformed)$adj.r.squared,summary(lasso.retrained)$adj.r.squared,summary(lasso.retrained.transformed)$adj.r.squared,summary(elnet.retrained)$adj.r.squared)
+
+```
+
+## Number of total predictors, and numbder of significant predictors
+
+```{r}
+report_result$number_of_coefficients =c("19","19","8","8","11","11","12")
+report_result$number_of_significant_coefficients =c("4","11","3","6","4","6","6")
+
+```
+
+
+
+
+## Adding Residual analysis and GOF From Analysis Below
+
+```{r}
+report_result$OveralL_GOF=c("N","N","N","N","N","N","N")
+report_result$Linearity=c("N","N","N","N","N","N","N")
+report_result$ConstantVariance=c("N","N","N","N","N","N","N")
+report_result$Independence=c("N","N","N","N","N","N","N")
+report_result$Normality=c("N","N","N","N","N","N","N")
+  
+
+
+```
+
+
+## Residual Analysis of All Models
+
+### Full Model
+
+```{r}
+# Get standardized residuals
+resids = rstandard(full.model)
+par(mfrow=c(2,2))
+  for (i in c(1:18)){
+  col_name = names(train3[i]) 
+  
+  if (!(i %in% c(14,15,17,18))){
+  plot(train3[,i], resids, xlab= col_name, ylab = "S. Residuals")
+  abline(h=0, col="red")
+  lines(lowess(train3[,i], resids), col='blue')
+  }
+}
+
+# Checking for constant variance and uncorrelated errors
+
+# Plot of std. residuals versus fitted values
+plot(step.model$fitted.values, resids, xlab="Fitted Values", ylab=" S. Residuals")
+lines(lowess(step.model$fitted.values, resids), col='blue')
+abline(h=0, col="red")
+
+summary_full_model = summary(full.model)
+# Plots for normality
+hist(resids, col="orange", nclass=15)
+qqPlot(resids)
+
+report_result$OveralL_GOF[1] = "not good"
+report_result$Linearity[1] = "Seems to be holding"
+report_result$ConstantVariance[1] = "Does not seem to be holding"
+report_result$Independence[1] =  "Errors are uncorrelated"
+report_result$Normality[1] = "Does not seem to be holding"
+  
+
+```
+
+```{r}
+summary_full_model
+
+```
+
+
+
+
+### Full Model Transformed
+
+```{r}
+# Get standardized residuals
+resids = rstandard(full.model.transformed)
+par(mfrow=c(2,2))
+  for (i in c(1:18)){
+  col_name = names(train3[i]) 
+  
+  if (!(i %in% c(14,15,17,18))){
+  plot(train3[,i], resids, xlab= col_name, ylab = "S. Residuals")
+  abline(h=0, col="red")
+  lines(lowess(train3[,i], resids), col='blue')
+  }
+}
+
+# Checking for constant variance and uncorrelated errors
+
+# Plot of std. residuals versus fitted values
+plot(step.model$fitted.values, resids, xlab="Fitted Values", ylab=" S. Residuals")
+lines(lowess(step.model$fitted.values, resids), col='blue')
+abline(h=0, col="red")
+
+
+# Plots for normality
+hist(resids, col="orange", nclass=15)
+qqPlot(resids)
+
+  
+report_result$OveralL_GOF[2] = "Average"
+report_result$Linearity[2] = "Seems to be holding"
+report_result$ConstantVariance[2] = " seem to be holding"
+report_result$Independence[2] =  "Errors are uncorrelated"
+report_result$Normality[2] = "Improved and moderaetly holding"
+
+```
+
+### Stepwise Transformed
+```{r}
+
+# Get standardized residuals
+resids = rstandard(step.model)
+
+par(mfrow=c(2,2))
+    
+for (i in c(1:18)){
+  col_name = names(train[i]) 
+  
+  if ((col_name %in% c("Sales_Revenue" , "Return_Refund" ,
+    "Total_Items_Purchased" , "Types_Items_Purchased" , "Unique_Item_Per_Basket" , 
+    "Is_Buying_Most_Popular",  "Country",  "Quantity_Basket", "Recency", 
+    "RFMSeg"))){
+  plot(train[,i], resids, xlab= col_name, ylab = "S. Residuals")
+  abline(h=0, col="red")
+  lines(lowess(train[,i], resids), col='blue')
+  }
+}
+
+# Checking for constant variance and uncorrelated errors
+
+# Plot of std. residuals versus fitted values
+plot(step.model$fitted.values, resids, xlab="Fitted Values", ylab=" S. Residuals")
+lines(lowess(step.model$fitted.values, resids), col='blue')
+abline(h=0, col="red")
+
+
+# Plots for normality
+hist(resids, col="orange", nclass=15)
+qqPlot(resids)
+
+report_result$OveralL_GOF[3] = "Average"
+report_result$Linearity[3] = "Seems to be holding"
+report_result$ConstantVariance[3] = "not clearly holding"
+report_result$Independence[3] =  "Errors are uncorrelated"
+report_result$Normality[3] = "Does not seemd to be holding"
+
+  
+
+```
+
+
+### Stepwise Transformed
+```{r}
+
+# Get standardized residuals
+resids = rstandard(step.model.transformed)
+
+par(mfrow=c(2,2))
+    
+for (i in c(1:18)){
+  col_name = names(train[i]) 
+  
+  if ((col_name %in% c("Sales_Revenue" , "Return_Refund" ,
+    "Total_Items_Purchased" , "Types_Items_Purchased" , "Unique_Item_Per_Basket" , 
+    "Is_Buying_Most_Popular",  "Country",  "Quantity_Basket", "Recency", 
+    "RFMSeg"))){
+  plot(train[,i], resids, xlab= col_name, ylab = "S. Residuals")
+  abline(h=0, col="red")
+  lines(lowess(train[,i], resids), col='blue')
+  }
+}
+
+# Checking for constant variance and uncorrelated errors
+
+# Plot of std. residuals versus fitted values
+plot(step.model.transformed$fitted.values, resids, xlab="Fitted Values", ylab=" S. Residuals")
+lines(lowess(step.model.transformed$fitted.values, resids), col='blue')
+abline(h=0, col="red")
+
+
+# Plots for normality
+hist(resids, col="orange", nclass=15)
+qqPlot(resids)
+
+
+# OveralL_GOF = Average
+# Linearity = Seems to be holding 
+# ConstantVariance =  seem to be holding
+# Independence =  Errors are uncorrelated
+# Normality = Improved and moderaetly holding
+  
+report_result$OveralL_GOF[4] = "Average"
+report_result$Linearity[4] = "Seems to be holding"
+report_result$ConstantVariance[4] = "seem to be holding"
+report_result$Independence[4] =  "Errors are uncorrelated"
+report_result$Normality[4] = "Improved and moderaetly holding"
+
+
+```
+
+
+
+### lasso.retrained Model
+
+```{r}
+# Get standardized residuals
+resids = rstandard(lasso.retrained)
+par(mfrow=c(2,2))
+  for (i in c(1:ncol(lasso.predictors))){
+  col_name = names(lasso.predictors[i]) 
+  
+  if (!(i %in% c(14,15,17,18))){
+  plot(lasso.predictors[,i], resids, xlab= col_name, ylab = "S. Residuals")
+  abline(h=0, col="red")
+  lines(lowess(lasso.predictors[,i], resids), col='blue')
+  }
+}
+
+# Checking for constant variance and uncorrelated errors
+
+# Plot of std. residuals versus fitted values
+plot(step.model$fitted.values, resids, xlab="Fitted Values", ylab=" S. Residuals")
+lines(lowess(step.model$fitted.values, resids), col='blue')
+abline(h=0, col="red")
+
+
+# Plots for normality
+hist(resids, col="orange", nclass=15)
+qqPlot(resids)
+
+
+# OveralL_GOF = Average
+# Linearity = Seems to be holding 
+# ConstantVariance =  Does not seem to be clearly holding
+# Independence =  Errors are uncorrelated
+# Normality = Does not seem to be holding
+
+report_result$OveralL_GOF[5] = "Average"
+report_result$Linearity[5] = "Seems to be holding"
+report_result$ConstantVariance[5] = "Does not seem to be clearly holding"
+report_result$Independence[5] =  "Errors are uncorrelated"
+report_result$Normality[5] = "Does not seem to be holding"
+
+
+```
+
+
+
+
+### lasso.retrained.transformed Model
+
+```{r}
+# Get standardized residuals
+resids = rstandard(lasso.retrained.transformed)
+par(mfrow=c(2,2))
+  for (i in c(1:ncol(lasso.predictors))){
+  col_name = names(lasso.predictors[i]) 
+  
+  if (!(i %in% c(14,15,17,18))){
+  plot(lasso.predictors[,i], resids, xlab= col_name, ylab = "S. Residuals")
+  abline(h=0, col="red")
+  lines(lowess(lasso.predictors[,i], resids), col='blue')
+  }
+}
+
+# Checking for constant variance and uncorrelated errors
+
+# Plot of std. residuals versus fitted values
+plot(step.model$fitted.values, resids, xlab="Fitted Values", ylab=" S. Residuals")
+lines(lowess(step.model$fitted.values, resids), col='blue')
+abline(h=0, col="red")
+
+
+# Plots for normality
+hist(resids, col="orange", nclass=15)
+qqPlot(resids)
+
+# OveralL_GOF = Average
+# Linearity = Seems to be holding 
+# ConstantVariance =  seem to be holding
+# Independence =  Errors are uncorrelated
+# Normality = Improved and moderaetly holding
+
+report_result$OveralL_GOF[6] = "Average"
+report_result$Linearity[6] = "Seems to be holding"
+report_result$ConstantVariance[6] = "seem to be holding"
+report_result$Independence[6] =  "Errors are uncorrelated"
+report_result$Normality[6] = "Improved and moderaetly holding"
+
+
+
+```
+
+
+
+### elnet.retrained Model
+
+```{r}
+# Get standardized residuals
+resids = rstandard(elnet.retrained)
+par(mfrow=c(2,2))
+  for (i in c(1:ncol(elnet.predictors))){
+  col_name = names(elnet.predictors[i]) 
+  
+  if (!(i %in% c(14,15,17,18))){
+  plot(elnet.predictors[,i], resids, xlab= col_name, ylab = "S. Residuals")
+  abline(h=0, col="red")
+  lines(lowess(elnet.predictors[,i], resids), col='blue')
+  }
+}
+
+# Checking for constant variance and uncorrelated errors
+
+# Plot of std. residuals versus fitted values
+plot(step.model$fitted.values, resids, xlab="Fitted Values", ylab=" S. Residuals")
+lines(lowess(step.model$fitted.values, resids), col='blue')
+abline(h=0, col="red")
+
+
+# Plots for normality
+hist(resids, col="orange", nclass=15)
+qqPlot(resids)
+
+# OveralL_GOF = Average
+# Linearity = Seems to be holding 
+# ConstantVariance =  Does not seem to be clearly holding
+# Independence =  Errors are uncorrelated
+# Normality = Does not seem to be holding
+
+report_result$OveralL_GOF[7] = "Average"
+report_result$Linearity[7] = "Seems to be holding"
+report_result$ConstantVariance[7] = "Does not seem to be clearly holding"
+report_result$Independence[7] =  "Errors are uncorrelated"
+report_result$Normality[7] = "Does not seem to be holding"
+
+```
+```{r}
+
+
+report_result
+test_predictions_results_comparison <- report_result[1:6]
+variable_selection <- report_result[7:8]
+goodness_of_fit <- report_result[9:13]
+
+test_predictions_results_comparison
+variable_selection
+goodness_of_fit
+```
+```{r}
+
+write.csv(test_predictions_results_comparison,"output_test_predictions_results_comparison.csv")
+write.csv(variable_selection,"output_variable_selection.csv")
+write.csv(goodness_of_fit,"output_goodness_of_fit.csv")
+
+
+```
+
+
+
+
+
+### Scoring on Next 6 months Data for Future Predictions
+
+```{r}
+future_data <- read.csv("2nd_months_predicting_variables.csv")
+# future_data=future_data[-c(1,13)]
+future_data$Country2[future_data$Country !="United Kingdom"] <- "Others"
+future_data$Country2[future_data$Country =="United Kingdom"] <- "United Kingdom"
+future_data$Country=as.factor(future_data$Country2)
+future_data$Is_Buying_Most_Popular = as.factor(future_data$Is_Buying_Most_Popular)
+future_data$Country = as.factor(future_data$Country)
+future_data$RFMSeg=as.integer((future_data$Recency_Quantile+future_data$Frequency_Quantile+future_data$Monetory_Value_Quantile))
+future_data$RFMSeg=as.factor(future_data$RFMSeg)
+
+
+####### Using the model buit to score on Future Data
+future_data_predicted = predict(full.model.transformed, newdata = future_data, type = "response")**2
+```
+
+
+### A. Total Revenue and CLV
+
+```{r}
+revenue=sum(future_data_predicted)
+gross=1/100
+###churn=15.00/100 ###Assuming 15% Churn
+
+###Assuming no Churn
+NET_CLV_6months=revenue*gross
+
+print(revenue)
+print(NET_CLV_6months)
+```
+
+
+
+### B. Bar Graph
+
+```{r}
+# Creates bin
+Groups <- cut(x=as.numeric(future_data_predicted)/1000, breaks=seq(from=0, to=ceiling(15), by = 1))
+
+
+Bygroup = tapply(future_data_predicted, Groups, length)
+
+####Barplot
+b=barplot(height = Bygroup, xlab = "Predicted $ Revenue ( in thousands) ", ylab = "#Customers")
+Bygroup
+Bygroup/sum(Bygroup)
+```
+

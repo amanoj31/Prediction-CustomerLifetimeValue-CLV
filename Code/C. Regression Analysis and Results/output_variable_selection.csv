@@ -1,0 +1,8 @@
+"","number_of_coefficients","number_of_significant_coefficients"
+"Full","19","4"
+"Full-Transformed","19","11"
+"Step-Wise","8","3"
+"Step-Wise-Transformed","8","6"
+"Lasso","11","4"
+"Lasso-Transformed","11","6"
+"ENet","12","6"

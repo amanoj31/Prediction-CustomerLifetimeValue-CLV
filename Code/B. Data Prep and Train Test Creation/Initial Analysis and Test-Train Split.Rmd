@@ -1,0 +1,575 @@
+---
+title: "ISyE 6414"
+author: "Team 14: Test and train , Analysis 1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r}
+library(car)
+library(dplyr)
+library(TSstudio)
+library(ggplot2)
+library(tibble)
+library(caTools)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+raw <- read.csv("final_data.csv")
+# summary(raw)
+
+raw$Is_Buying_Most_Popular = as.factor(raw$Is_Buying_Most_Popular)
+raw$Country = as.factor(raw$Country)
+vc <- c("United Kingdom", "Germany", "France")
+
+
+raw$Country2[raw$Country !="United Kingdom"] <- "Others"
+raw$Country2[raw$Country =="United Kingdom"] <- "United Kingdom"
+raw$Country=as.factor(raw$Country2)
+raw$RFMSeg<-as.integer((raw$Recency_Quantile+raw$Frequency_Quantile+raw$Monetory_Value_Quantile))
+# raw$RFMSeg<-as.integer(((raw$Monetory_Value_Quantile)*3))
+
+raw$RFMSeg=as.factor(raw$RFMSeg)
+raw=raw[,-c(3,19,20,21,23)]
+# Only considering sales and not returns(positive Net Income)
+raw[raw$Y_Income <= 0,]$Y_Income = 1
+# is.numeric (raw$Orders_Unique)
+
+```
+
+
+```{r}
+# final summary of the dataset
+summary(raw)
+set.seed(1)
+
+
+library(caret)
+dt = sort(sample(nrow(raw), nrow(raw)*.7))
+train<-raw[dt,]
+test<-raw[-dt,]
+
+```
+
+
+## Exploratory Data Analysis
+
+```{r}
+par(mfrow=c(2,2))
+boxplot(log(Y_Income)~Country, data=train, col= blues9)
+boxplot(log(Y_Income)~RFMSeg, data=train, col= blues9)
+boxplot(log(Y_Income)~Is_Buying_Most_Popular, data=train, col= blues9)
+```
+## Interpretation
+
+There are possible outliers. 
+Scaling might be a good option here as well. 
+
+
+##  Scatterplots for monetory vs quantitative predictors
+
+```{r}
+
+# First 4 predictors vs Y_income
+
+par(mfrow=c(2,2))
+for (i in c(1:19)){
+  
+  if (!(i %in% c(15,16,18,19))){
+    
+    
+  col_name = names(train[i]) 
+  {
+  plot(train[,i], train$Y_Income, xlab= col_name, ylab = "Post 6 months Net Revenue ")
+  abline(lm(Y_Income ~ train[,i], data =  train), col = 2)
+  }
+  }
+}
+
+```
+
+General trend: Graphically, Orders_unique, Total Items purchased, Monetary value, and sales revenue seems to have a strong and positive relationship with the response variable but linearity is not clear and will have to be looked into at residual analysis. Itwould also appear that predictors related to cancellations have a negative relation, possible due to influential points as in the case for total items returned.
+
+
+Outliers: We may also have possible outliers in upper left and right portions of the graphs that will need further investigation. Some of the points with heavy cancellations appear to be outliers from a business perspective as they are very unlikely to happen again.
+
+
+## Correlations:
+
+```{r}
+
+library(corrplot)
+
+# Set color codes
+gtblue = rgb(0, 48, 87, maxColorValue = 255)
+techgold = rgb(179, 163, 105, maxColorValue = 255)
+buzzgold = rgb(234, 170, 0, maxColorValue = 255)
+bobbyjones = rgb(55, 113, 23, maxColorValue = 255)
+
+# Select numerical variables
+dat.num <- na.omit(train[ , which(sapply(train, is.numeric))])
+# Create correlation matrix
+corr <- cor(dat.num)
+# Create correlation plot
+col <- colorRampPalette(c(buzzgold,"white", gtblue))(10)
+par(mfrow=c(1,1))
+corrplot(corr, method = "circle", type = "upper", tl.col="black", col = col, tl.cex=0.5)
+
+```
+
+```{r}
+cor(train[sapply(train, is.numeric)])
+
+
+```
+
+
+There is a very strong and positive correlation between Sales_Revenue and Y_income. There are negative correlations between variables related to cancellation and for others we see positive correlation between the predicting variables and the response variable.
+In addition, we see strong correlation among some of the predicting variables suggesting that multicollinearity might be a problem in a model that uses all predictors. 
+
+## Fitting the Multiple Linear Regression Model
+
+```{r}
+
+# fit full model
+model_full <-lm(Y_Income~., data=train)
+# Display summary
+summary(model_full)
+
+```
+
+
+## Significance of  variables
+
+```{r}
+
+# Signiciant Coefficients
+which(summary(model_full)$coeff[,4]<0.01)
+
+
+print("--------------------------------------------------------------------------------")
+## Insignificant variables
+# Insignificant Coefficients
+which(summary(model_full)$coeff[,4]>0.01)
+
+
+# Gievn all other variables in the model
+```
+
+
+## Overall Significance
+
+Because the p value associated to the F-statistic (<2.2e-16) is less than the α level, we reject the null hypothesis that all slope coefficients are equal to zero, and state that the model is statistically significant at an α level of 0.01.
+
+
+## checking the significance of newly created and interaction variables terms using F-partial test:
+```{r}
+
+model_original <- lm(Y_Income ~ Orders_Unique + Returns_Unique + Total_Items_Purchased + Total_Items_Returned + Sales_Revenue + Return_Refund + Monetory_Value  + Country , data = train)
+# colnames(raw)
+
+
+#  Quantity_Basket, Types_Items_Purchased, Unique_Item_Per_Basket, Types_Items_Returned, Unique_Item_Per_Return, Average_Unit_Price_Purchase, Average_Unit_Refund_Return, Is_Buying_Most_Popular,Recency, RFMSeg
+# model_full <-lm(Y_Income~., data=train)
+
+# summary(model_original)
+# summary(model_full)
+
+anova(model_original,model_full)
+```
+
+
+since p-value of 1.37e-07 is almost 0, we reject the null hypothesis that the coefficients for newly created and interaction variables terms are all 0. At least one of these variables is statsitically significant and adds to the explanatory power of the model.
+
+## Checking for Outliers and Multicollinearity
+```{r}
+# Calculating Cook's distances
+cook=cooks.distance(model_full)
+
+# Plotting Cook's distances
+plot(cook,type="h",lwd=3,col="red", ylab = "Cook's Distance")
+
+# plot(cook)
+abline(h=1, col="red")
+
+```
+
+
+As expected, we have outliers and we will need to check if they are influrential. 
+
+```{r}
+#Identify outliers
+cat("Observation", which(cook>1), "has a cook's distance that is greater than 1 and therefore will be treated as outliers")
+```
+
+```{r}
+# Remove outlier
+train2<-train[ -which(cook>1),]
+
+# fit full model without outliers
+model_full_2 <-lm(Y_Income~., data=train2)
+# Display summary
+summary(model_full_2)
+
+```
+
+## Checking for Multicollinearity
+
+```{r}
+
+# VIF Threshold
+cat("VIF Threshold:", max(10, 1/(1-summary(model_full_2)$r.squared)), "\n")
+
+```
+
+
+```{r}
+# Calculate VIF
+vif(model_full_2)
+```
+
+We have high multicollinearity for Total_Items_Purchased, Sales_Revenue and Monetory_Value. Total_Items_Purchased is important from a business perspective and we will retain it. As we saw in correlations betwenn predictors, Sales_Revenue and Monetory_Value have a very high correlation coefiicient of 0.955 and hence we will remove Monetory_Value as a predictor.
+
+
+## model withut outliers and Monetory_Value
+```{r}
+# Removing Monetory_Value as a feature and building a model
+train3 <- train2[,-c(12)]
+# train3<-train3[train3$RFMSeg==0,]
+# train3<-train3[,-c(18)]
+model3 <-lm(Y_Income~., data=train3)
+# Display summary
+summary(model3)
+
+# # Calculating Cook's distances
+# cook=cooks.distance(model3)
+# # Plotting Cook's distances
+# plot(cook,type="h",lwd=3,col="red", ylab = "Cook's Distance")
+# # plot(cook)
+# abline(h=1, col="red")
+
+
+## Significance of  variables
+```
+
+```{r}
+
+# Signiciant Coefficients
+which(summary(model3)$coeff[,4]<0.01)
+
+
+print("--------------------------------------------------------------------------------")
+## Insignificant variables
+# Insignificant Coefficients
+which(summary(model3)$coeff[,4]>0.01)
+
+# Gievn all other variables in the model
+```
+
+
+## Overall Significance
+
+Because the p value associated to the F-statistic (<2.2e-16) is still less than the α level, we reject the null hypothesis that all slope coefficients are equal to zero, and state that the model is statistically significant at an α level of 0.01.
+
+## checking the significance of newly created and interaction variables terms using F-partial test:
+```{r}
+
+model_original <- lm(Y_Income ~ Orders_Unique + Returns_Unique + Total_Items_Purchased + Total_Items_Returned + Sales_Revenue + Return_Refund   + Country , data = train3)
+# colnames(raw)
+
+
+#  Quantity_Basket, Types_Items_Purchased, Unique_Item_Per_Basket, Types_Items_Returned, Unique_Item_Per_Return, Average_Unit_Price_Purchase, Average_Unit_Refund_Return, Is_Buying_Most_Popular,Recency, RFMSeg
+# model_full <-lm(Y_Income~., data=train)
+
+# summary(model_original)
+# summary(model_full)
+
+anova(model_original,model3)
+
+```
+
+since p-value of 0.006394-07 is less than significane level of 0.01, we reject the null hypothesis that the coefficients for newly created and interaction variables terms are all 0. At least one of these variables is statsitically significant and adds to the explanatory power of the model.
+
+
+
+```{r}
+# VIF Threshold
+cat("VIF Threshold:", max(10, 1/(1-summary(model3)$r.squared)), "\n")
+# Calculate VIF
+vif(model3)
+
+```
+We don't have high multicollinearity in our model especially after factoring in domain knowledge. We can also deal with residual multicollinearity at the time of variable selection.
+
+
+## Residual Analysis
+
+### Checking linearity assumption:
+
+```{r}
+
+# Get standardized residuals
+resids = rstandard(model3)
+
+par(mfrow=c(2,2))
+    
+for (i in c(1:18)){
+  col_name = names(train3[i]) 
+  
+  if (!(i %in% c(14,15,17,18))){
+  plot(train3[,i], resids, xlab= col_name, ylab = "S. Residuals")
+  abline(h=0, col="red")
+  lines(lowess(train3[,i], resids), col='blue')
+  }
+}
+
+```
+
+From the scatterplots for predictors, we can see that the residuals exhibit an almost linear shape with evenly distributed residuals around 0 line, which indicates an almost linear realationship between predictors and response variables.
+
+Overall, the linearity assumption does seem to hold.
+
+Note: The blue line is a smooth fit to the residuals, intended to make it easier to identify a trend.
+
+
+### Checking for constant variance and uncorrelated errors
+
+```{r}
+
+# Plot of std. residuals versus fitted values
+plot(model3$fitted.values, resids, xlab="Fitted Values", ylab=" S. Residuals")
+lines(lowess(model3$fitted.values, resids), col='blue')
+abline(h=0, col="red")
+
+```
+
+From the plot of the standardized residuals vs. fitted values, we see that constant variance assumption does not hold as the variance increase with increase in fitted values.    
+
+There are no particular clusters. This suggests that the errors might be uncorrelated.
+
+
+### Checking normality assumption
+
+```{r}
+# Plots for normality
+hist(resids, col="orange", nclass=15)
+
+```
+
+```{r}
+
+qqPlot(resids)
+
+
+```
+
+Using histograms and qqplot, we see deviation from normality with heavy tails in QQ plot. The normality assumption does not appear to hold. Thus, a transformation on the response variable may better fit for our model.
+
+
+# Transformation
+
+```{r}
+# summary(train3)
+
+# Box-Cox transformation
+bc<-boxCox(model3)
+
+# Extract optimal lambda
+opt.lambda<-bc$x[which.max(bc$y)]
+
+# Rounded optimal lambda
+cat("Optimal Lambda = ", round(opt.lambda/0.5)*0.5, end="\n")
+
+
+```
+
+
+## Optimal Lambda =  0.5
+
+A lambda value = 0.5 equates to a square root transformation of the response variable.
+
+```{r}
+# train3 <- train2[,-c(12)]
+# train3<-train3[train3$RFMSeg==1,]
+# train3<-train3[,-c(18)]
+model4 <-lm(Y_Income^(1/2)~., data=train3)
+# Display summary
+summary(model4)
+
+```
+
+
+```{r}
+
+# Checking linearity assumption:
+# Get standardized residuals
+resids = rstandard(model4)
+# colnames(train3)
+
+
+par(mfrow=c(2,2))
+    
+for (i in c(1:18)){
+  col_name = names(train3[i]) 
+  
+  if (!(i %in% c(14,15,17,18))){
+  plot(train3[,i], resids, xlab = col_name, ylab = "S. Residuals")
+  abline(h=0, col="red")
+  lines(lowess(train3[,i], resids), col='blue')
+  }
+}
+```
+```{r}
+# Checking for constant variance and uncorrelated errors
+# Plot of std. residuals versus fitted values
+plot(model4$fitted.values, resids, xlab="Fitted Values", ylab=" S. Residuals")
+lines(lowess(model4$fitted.values, resids), col='blue')
+abline(h=0, col="red")
+
+### Checking normality assumption
+
+# Plots for normality
+hist(resids, col="orange", nclass=15)
+qqPlot(resids)
+
+
+```
+
+We are seeing deviation from linearity assumption in case of square root transformation. Linearity assumption does not seem to hold too well.
+
+
+From the plot of the standardized residuals vs. fitted values, we see that constant variance assumption still does not hold as the variance increase with increase in fitted values.    
+
+There are no particular clusters. This suggests that the errors might be uncorrelated.
+
+
+For histogram, we see better normality graphs but there are still heavy tails as per qq plot.  Normality assumption has improved although there are still visible tails.
+
+In general, Square root transformation has not improved goodness of fit except for normality. 
+
+Lets do variable selection!!!!
+
+
+```{r}
+
+# Create minimum model including an intercept
+min.model <- lm( Y_Income ~ 1, data = train3)
+# summary(min.model)
+
+
+# Perform awise regression
+step.model <- step(min.model, scope = list(lower = min.model, upper = model3),
+direction = "both", trace = FALSE)
+summary(step.model)
+
+```
+
+### Checking linearity assumption:
+
+```{r}
+
+# Get standardized residuals
+resids = rstandard(step.model)
+
+par(mfrow=c(2,2))
+    
+for (i in c(1:18)){
+  col_name = names(train3[i]) 
+  
+  if (!(i %in% c(14,15,17,18))){
+  plot(train3[,i], resids, xlab= col_name, ylab = "S. Residuals")
+  abline(h=0, col="red")
+  lines(lowess(train3[,i], resids), col='blue')
+  }
+}
+
+# Checking for constant variance and uncorrelated errors
+
+# Plot of std. residuals versus fitted values
+plot(step.model$fitted.values, resids, xlab="Fitted Values", ylab=" S. Residuals")
+lines(lowess(step.model$fitted.values, resids), col='blue')
+abline(h=0, col="red")
+
+
+# Plots for normality
+hist(resids, col="orange", nclass=15)
+qqPlot(resids)
+
+
+
+# Box-Cox transformation
+bc<-boxCox(model3)
+
+# Extract optimal lambda
+opt.lambda<-bc$x[which.max(bc$y)]
+
+# Rounded optimal lambda
+cat("Optimal Lambda = ", round(opt.lambda/0.5)*0.5, end="\n")
+
+```
+
+```{r}
+
+# train3 <- train2[,-c(12)]
+# train3<-train3[train3$RFMSeg==1,]
+# train3<-train3[,-c(18)]
+
+step.model_transformed <- lm(formula = Y_Income^(1/2) ~ Sales_Revenue + Return_Refund + Total_Items_Purchased + 
+    Types_Items_Purchased + Unique_Item_Per_Basket + Is_Buying_Most_Popular + 
+    Country + Quantity_Basket + Recency, data = train3)
+
+summary(step.model_transformed)
+```
+
+
+```{r}
+
+# Get standardized residuals
+resids = rstandard(step.model_transformed)
+
+par(mfrow=c(2,2))
+    
+for (i in c(1:18)){
+  col_name = names(train3[i]) 
+  
+  if ((col_name %in% c("Sales_Revenue" , "Return_Refund" ,
+    "Total_Items_Purchased" , "Types_Items_Purchased" , "Unique_Item_Per_Basket" , 
+    "Is_Buying_Most_Popular",  "Country",  "Quantity_Basket", "Recency", 
+    "RFMSeg"))){
+  plot(train3[,i], resids, xlab= col_name, ylab = "S. Residuals")
+  abline(h=0, col="red")
+  lines(lowess(train3[,i], resids), col='blue')
+  }
+}
+
+# Checking for constant variance and uncorrelated errors
+
+# Plot of std. residuals versus fitted values
+plot(step.model_transformed$fitted.values, resids, xlab="Fitted Values", ylab=" S. Residuals")
+lines(lowess(step.model_transformed$fitted.values, resids), col='blue')
+abline(h=0, col="red")
+
+
+# Plots for normality
+hist(resids, col="orange", nclass=15)
+qqPlot(resids)
+
+```
+```{r}
+write.csv(train3, "train3.csv")
+```
+
+
+```{r}
+write.csv(test, "test.csv")
+```
