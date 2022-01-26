@@ -9,12 +9,6 @@ at specific segments of the populace; and recommended advertisement budget proje
 short, CLV is a powerful measure of customer value to a business based on historic transaction
 data; a metric which is hard to encapsulate in existing summary statistics such as total
 transactions, average purchase amount per transaction, or percentage of total sales.
-This project aims to predict the CLV of customers based on 1-year transaction data. First, we
-will extract customer-level information on purchases and returns from the data set to generate
-features per customer including Average Order Value (AOV), Days to Purchase (D2P), Gross
-Margin, and Recency, Frequency, Monetary (RFM) Metrics. Based on these features, we will
-build a regression model to estimate and predict CLV. After validating model assumptions and
-conducting goodness of fit analysis, we will compare our model to existing CLV models from
-other researchers who did not include returns as a part of their analysis. We will use both
-models to predict CLV of the same data set and analyze how differing methodologies and model
-assumptions influenced difference in CLV predictions.
+This project aims to predict the CLV of customers based on 1-year transaction data. 
+
+
